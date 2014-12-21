@@ -78,7 +78,6 @@ class ManagerService(service_utils.RPCServer):
             namespace='climate.resource.plugins',
             invoke_on_load=False
         )
-
         for ext in extension_manager.extensions:
             try:
                 plugin_obj = ext.plugin()
@@ -133,7 +132,7 @@ class ManagerService(service_utils.RPCServer):
         if not event:
             return
 
-        if event['time'] < datetime.datetime.utcnow():
+        if event['time'] < datetime.datetime.now():
             db_api.event_update(event['id'], {'status': 'IN_PROGRESS'})
             event_type = event['event_type']
             event_fn = getattr(self, event_type, None)
@@ -184,7 +183,7 @@ class ManagerService(service_utils.RPCServer):
         start_date = lease_values['start_date']
         end_date = lease_values['end_date']
 
-        now = datetime.datetime.utcnow()
+        now = datetime.datetime.now()
         now = datetime.datetime(now.year,
                                 now.month,
                                 now.day,
@@ -294,7 +293,7 @@ class ManagerService(service_utils.RPCServer):
             datetime.datetime.strftime(lease['end_date'], LEASE_DATE_FORMAT))
         before_end_date = values.get('before_end_notification', None)
 
-        now = datetime.datetime.utcnow()
+        now = datetime.datetime.now()
         now = datetime.datetime(now.year,
                                 now.month,
                                 now.day,
@@ -388,8 +387,8 @@ class ManagerService(service_utils.RPCServer):
 
     def delete_lease(self, lease_id):
         lease = self.get_lease(lease_id)
-        if (datetime.datetime.utcnow() < lease['start_date'] or
-                datetime.datetime.utcnow() > lease['end_date']):
+        if (datetime.datetime.now() < lease['start_date'] or
+                datetime.datetime.now() > lease['end_date']):
             with trusts.create_ctx_from_trust(lease['trust_id']) as ctx:
                 for reservation in lease['reservations']:
                     plugin = self.plugins[reservation['resource_type']]
