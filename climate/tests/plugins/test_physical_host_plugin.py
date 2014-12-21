@@ -59,6 +59,17 @@ class PhysicalHostPlugingSetupOnlyTestCase(tests.TestCase):
         self.db_host_extra_capability_get_all_per_host = (
             self.patch(self.db_api, 'host_extra_capability_get_all_per_host'))
 
+    def test_setup(self):
+        pool = self.patch(self.rp.ReservationPool, '__init__')
+        pool.return_value = None
+        inventory = self.patch(self.nova_inventory.NovaInventory, '__init__')
+        inventory.return_value = None
+        freepool_exist = self.patch(self.fake_phys_plugin, '_freepool_exists')
+        freepool_exist.return_value = False
+        self.fake_phys_plugin.setup(None)
+        pool.assert_called_once_with()
+        inventory.assert_called_once_with()
+
     def test__get_extra_capabilities_with_values(self):
         self.db_host_extra_capability_get_all_per_host.return_value = [
             {'id': 1,
@@ -629,6 +640,7 @@ class PhysicalHostPluginTestCase(tests.TestCase):
         host_allocation_get_all_by_values.return_value = [
             {'compute_host_id': 'host1'},
         ]
+        self.patch(self.fake_phys_plugin, '_set_power_state')
         host_get = self.patch(self.db_api, 'host_get')
         host_get.return_value = {'service_name': 'host1_hostname'}
         add_computehost = self.patch(
@@ -647,6 +659,7 @@ class PhysicalHostPluginTestCase(tests.TestCase):
         reservation_get_all_by_values.return_value = [
             {
                 'id': u'593e7028-c0d1-4d76-8642-2ffd890b324c',
+                'lease_id': u'99bced7a-54f0-46e3-9b9f-9ea25d28ebbb',
                 'resource_id': u'04de74e8-193a-49d2-9ab8-cba7b49e45e8',
             }
         ]
@@ -675,6 +688,14 @@ class PhysicalHostPluginTestCase(tests.TestCase):
         self.patch(self.fake_phys_plugin, '_get_hypervisor_from_name_or_id')
         get_hypervisors = self.patch(self.nova.hypervisors, 'get')
         get_hypervisors.return_value = mock.MagicMock(running_vms=1)
+        lease_get = self.patch(
+            self.db_api,
+            'lease_get')
+        lease_get.return_value = {
+            'end_date': datetime.datetime(2013, 12, 19, 20, 00)
+        }
+        sleep = self.patch(self.fake_phys_plugin, '_has_time_to_sleep')
+        sleep.return_value = False
         self.fake_phys_plugin.on_end(u'04de74e8-193a-49d2-9ab8-cba7b49e45e8')
         reservation_update.assert_called_with(
             u'593e7028-c0d1-4d76-8642-2ffd890b324c', {'status': 'completed'})
@@ -691,6 +712,7 @@ class PhysicalHostPluginTestCase(tests.TestCase):
         reservation_get_all_by_values.return_value = [
             {
                 'id': u'593e7028-c0d1-4d76-8642-2ffd890b324c',
+                'lease_id': u'99bced7a-54f0-46e3-9b9f-9ea25d28ebbb',
                 'resource_id': u'04de74e8-193a-49d2-9ab8-cba7b49e45e8',
             },
         ]
@@ -719,6 +741,14 @@ class PhysicalHostPluginTestCase(tests.TestCase):
         self.patch(self.fake_phys_plugin, '_get_hypervisor_from_name_or_id')
         get_hypervisors = self.patch(self.nova.hypervisors, 'get')
         get_hypervisors.return_value = mock.MagicMock(running_vms=0)
+        lease_get = self.patch(
+            self.db_api,
+            'lease_get')
+        lease_get.return_value = {
+            'end_date': datetime.datetime(2013, 12, 19, 20, 00)
+        }
+        sleep = self.patch(self.fake_phys_plugin, '_has_time_to_sleep')
+        sleep.return_value = False
         self.fake_phys_plugin.on_end(u'04de74e8-193a-49d2-9ab8-cba7b49e45e8')
         reservation_update.assert_called_with(
             u'593e7028-c0d1-4d76-8642-2ffd890b324c', {'status': 'completed'})

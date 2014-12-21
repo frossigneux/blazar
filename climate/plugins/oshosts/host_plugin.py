@@ -18,6 +18,8 @@ import datetime
 import json
 import uuid
 
+import kwstandbyclient.client as kwclient
+from keystoneclient.v2_0 import client
 from oslo.config import cfg
 import six
 
@@ -87,10 +89,12 @@ class PhysicalHostPlugin(base.BasePlugin, nova.NovaClientWrapper):
             values['end_date'],
         )
         if not host_ids:
+            pool.delete(pool_name)
             raise manager_ex.NotEnoughHostsAvailable()
         for host_id in host_ids:
             db_api.host_allocation_create({'compute_host_id': host_id,
                                           'reservation_id': reservation['id']})
+        db_api.host_allocation_optimize()
 
     def update_reservation(self, reservation_id, values):
         """Update reservation."""
@@ -164,6 +168,7 @@ class PhysicalHostPlugin(base.BasePlugin, nova.NovaClientWrapper):
             pool = rp.ReservationPool()
             for allocation in db_api.host_allocation_get_all_by_values(
                     reservation_id=reservation['id']):
+                self._set_power_state(allocation['compute_host_id'], 'wakeup')
                 host = db_api.host_get(allocation['compute_host_id'])
                 pool.add_computehost(reservation['resource_id'],
                                      host['service_name'])
@@ -184,12 +189,19 @@ class PhysicalHostPlugin(base.BasePlugin, nova.NovaClientWrapper):
             pool = rp.ReservationPool()
             for allocation in allocations:
                 db_api.host_allocation_destroy(allocation['id'])
-                if self.nova.hypervisors.get(
+                hyp = self.nova.hypervisors.get(
                         self._get_hypervisor_from_name_or_id(
                         allocation['compute_host_id'])
-                ).__dict__['running_vms'] == 0:
-                    pool.delete(reservation['resource_id'])
-                # TODO(frossigneux) Kill, migrate, or increase fees...
+                )
+                if hyp.__dict__['running_vms'] > 0:
+                    hyp = self.nova.hypervisors.search(hyp.__dict__['hypervisor_hostname'], servers=True)
+                    for server in hyp[0].__dict__['servers']:
+                        s = self.nova.servers.get(server['uuid'])
+                        s.delete()
+                lease = db_api.lease_get(reservation['lease_id'])
+                if self._has_time_to_sleep(allocation['compute_host_id'], lease['end_date']):
+                    self._set_power_state(allocation['compute_host_id'], 'standby')
+            pool.delete(reservation['resource_id'])
 
     def _get_extra_capabilities(self, host_id):
         extra_capabilities = {}
@@ -336,7 +348,7 @@ class PhysicalHostPlugin(base.BasePlugin, nova.NovaClientWrapper):
                                                 pool=self.freepool_name)
 
     def _matching_hosts(self, hypervisor_properties, resource_properties,
-                        count_range, start_date, end_date):
+                        count_range, start_date, end_date, hardware_only=False):
         """Return the matching hosts (preferably not allocated)
 
         """
@@ -353,6 +365,8 @@ class PhysicalHostPlugin(base.BasePlugin, nova.NovaClientWrapper):
         if resource_properties:
             filter_array += self._convert_requirements(
                 resource_properties)
+        if hardware_only:
+            return [host['id'] for host in db_api.host_get_all_by_queries(filter_array)]
         for host in db_api.host_get_all_by_queries(filter_array):
             if not db_api.host_allocation_get_all_by_values(
                     compute_host_id=host['id']):
@@ -436,3 +450,21 @@ class PhysicalHostPlugin(base.BasePlugin, nova.NovaClientWrapper):
             return hypervisor
         else:
             raise manager_ex.HypervisorNotFound(pool=hypervisor_name_or_id)
+
+    def _has_time_to_sleep(self, host_id, date):
+        next_lease = db_utils.next_lease(host_id, date)
+        if (next_lease and
+            next_lease.start_date <= date + datetime.timedelta(minutes=5)):
+            return False
+        else:
+            return True
+
+    def _set_power_state(self, host_id, state):
+        ks = client.Client(auth_url='http://10.5.5.5:35357/v2.0',
+                           username='kwstandby',
+                           password='password',
+                           tenant_name='service')
+        endpoint = ks.service_catalog.url_for(service_type='standby',
+                                              endpoint_type='publicURL')
+        kwc = kwclient.Client('1', endpoint, ks.auth_token)
+        kwc.node.update(host_id, state)

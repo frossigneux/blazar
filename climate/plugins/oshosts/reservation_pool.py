@@ -56,7 +56,6 @@ class ReservationPool(nova.NovaClientWrapper):
 
     def get_aggregate_from_name_or_id(self, aggregate_obj):
         """Return an aggregate by name or an id."""
-
         aggregate = None
         agg_id = None
         try:
@@ -94,7 +93,6 @@ class ReservationPool(nova.NovaClientWrapper):
         Return an aggregate or raise a nova exception.
 
         """
-
         name = name or self._generate_aggregate_name()
 
         if az:
@@ -131,7 +129,6 @@ class ReservationPool(nova.NovaClientWrapper):
         host is attached to.
 
         """
-
         agg = self.get_aggregate_from_name_or_id(pool)
 
         hosts = agg.hosts
@@ -184,7 +181,6 @@ class ReservationPool(nova.NovaClientWrapper):
         Return the related aggregate.
         Raise an aggregate exception if something wrong.
         """
-
         agg = self.get_aggregate_from_name_or_id(pool)
 
         try:
