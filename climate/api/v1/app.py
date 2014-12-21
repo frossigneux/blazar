@@ -15,7 +15,7 @@
 
 import eventlet
 import flask
-from keystoneclient.middleware import auth_token
+from keystonemiddleware import auth_token
 from oslo.config import cfg
 from werkzeug import exceptions as werkzeug_exceptions
 
