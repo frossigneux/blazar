@@ -15,13 +15,18 @@
 
 """Implementation of SQLAlchemy backend."""
 
+import datetime
+import json
 import sys
+
+import six
 
 import sqlalchemy as sa
 from sqlalchemy.sql.expression import asc
 from sqlalchemy.sql.expression import desc
 
 from climate.db import exceptions as db_exc
+from climate.db import utils as db_utils
 from climate.db.sqlalchemy import facade_wrapper
 from climate.db.sqlalchemy import models
 from climate.openstack.common.db import exception as common_db_exc
@@ -30,6 +35,8 @@ from climate.openstack.common.db.sqlalchemy import session as db_session
 from climate.openstack.common.gettextutils import _
 from climate.openstack.common import log as logging
 
+from keystoneclient.v2_0 import client
+import kwrankingclient.client as kwrclient
 
 LOG = logging.getLogger(__name__)
 
@@ -522,7 +529,143 @@ def host_allocation_destroy(host_allocation_id):
         session.delete(host_allocation)
 
 
-# ComputeHost
+def host_allocation_optimize():
+#    plugin = host_plugin.PhysicalHostPlugin()
+    # Create a reservation list R
+    leases = lease_get_all()
+    leases = [lease for lease in leases if lease['start_date'] > datetime.datetime.now()]
+    # Sort R by length
+    leases = sorted(leases, key=lambda k: k['end_date'] - k['start_date'], reverse=True)
+    for lease in leases:
+        reservations = reservation_get_all_by_lease_id(lease['id'])
+        # For each r in R:
+        for reservation in reservations:
+            host_reservations = host_reservation_get_by_reservation_id(reservation['id'])
+            if not isinstance(host_reservations, (list)):
+                host_reservations = [host_reservations]
+            for host_reservation in host_reservations:
+                # Create a list of matching hosts H
+                hosts = _matching_hosts(host_reservation['hypervisor_properties'], host_reservation['resource_properties'],
+                                        host_reservation['count_range'], lease['start_date'], lease['end_date'], hardware_only=True)
+                # Joindre la liste des hotes alloues actuellement
+                for alloc in host_allocation_get_all_by_values(reservation_id=reservation['id']):
+                    if alloc['compute_host_id'] not in hosts:
+                        hosts.append(alloc['compute_host_id'])
+                # Sort this list by decreasing efficiency
+                ks = client.Client(auth_url='http://10.5.5.5:35357/v2.0', username='kwranking', password='password', tenant_name='service')
+                endpoint = ks.service_catalog.url_for(service_type='efficiency', endpoint_type='publicURL')
+                kwr = kwrclient.Client('1', endpoint, ks.auth_token)
+                hosts_lst = ''
+                for x in hosts:
+                    hosts_lst += x + ';'
+                hosts = kwr.node.rank_hosts_list({'hosts': hosts_lst, 'method': 'Efficiency', 'number': len(hosts)})
+                # Create a list of current allocations
+                current_allocations = host_allocation_get_all_by_values(reservation_id=reservation['id'])
+                # Sort this list by increasing efficiency
+                current_hosts = [h['compute_host_id'] for h in current_allocations]
+                hosts_lst = ''
+                for x in current_hosts:
+                    hosts_lst += x + ';'
+                current_hosts = kwr.node.rank_hosts_list({'hosts': hosts_lst, 'method': 'Efficiency', 'number': len(current_hosts)})
+                current_hosts = current_hosts[::-1]
+                current_allocations_sorted = []
+                for h in current_hosts:
+                    current_allocations_sorted += [alloc for alloc in current_allocations if alloc['compute_host_id'] == h]
+                if hosts[:len(current_hosts)] == current_hosts[::-1]:
+                    break
+                # Put r on H (if ok), try the other ones otherwise
+                for worst_allocation in current_allocations_sorted:
+                    for host in hosts:
+                        if worst_allocation['compute_host_id'] == host:
+                            break
+                        allocation = host_allocation_get_all_by_values(
+                                compute_host_id=host)
+                        if not allocation:
+                            host_allocation_destroy(worst_allocation['id'])
+                            host_allocation_create({'compute_host_id': host,
+                                              'reservation_id': reservation['id']})
+                            break
+                        elif db_utils.get_free_periods(
+                            host,
+                            lease['start_date'],
+                            lease['end_date'],
+                            lease['end_date'] - lease['start_date'],
+                        ) == [
+                            (lease['start_date'], lease['end_date']),
+                        ]:
+                            host_allocation_destroy(worst_allocation['id'])
+                            host_allocation_create({'compute_host_id': host,
+                                              'reservation_id': reservation['id']})
+                            break
+
+
+def _matching_hosts(hypervisor_properties, resource_properties,
+                    count_range, start_date, end_date, hardware_only=False):
+    """Return the matching hosts (preferably not allocated)
+
+    """
+    count_range = count_range.split('-')
+    min_host = count_range[0]
+    max_host = count_range[1]
+    allocated_host_ids = []
+    not_allocated_host_ids = []
+    filter_array = []
+    # TODO(frossigneux) support "or" operator
+    if hypervisor_properties:
+        filter_array = _convert_requirements(
+            hypervisor_properties)
+    if resource_properties:
+        filter_array += _convert_requirements(
+            resource_properties)
+    return [host['id'] for host in host_get_all_by_queries(filter_array)]
+
+
+def _convert_requirements(requirements):
+    """Convert the requirements to an array of strings.
+    ["key op value", "key op value", ...]
+
+    """
+    # TODO(frossigneux) Support the "or" operator
+    # Convert text to json
+    if isinstance(requirements, six.string_types):
+        try:
+            requirements = json.loads(requirements)
+        except ValueError:
+            raise manager_ex.MalformedRequirements(rqrms=requirements)
+
+    # Requirement list looks like ['<', '$ram', '1024']
+    if _requirements_with_three_elements(requirements):
+        result = []
+        if requirements[0] == '=':
+            requirements[0] = '=='
+        string = (requirements[1][1:] + " " + requirements[0] + " " +
+                  requirements[2])
+        result.append(string)
+        return result
+    # Remove the 'and' element at the head of the requirement list
+    elif _requirements_with_and_keyword(requirements):
+        return [_convert_requirements(x)[0]
+                for x in requirements[1:]]
+    # Empty requirement list0
+    elif isinstance(requirements, list) and not requirements:
+        return requirements
+    else:
+        raise manager_ex.MalformedRequirements(rqrms=requirements)
+
+
+def _requirements_with_three_elements(requirements):
+    """Return true if requirement list looks like ['<', '$ram', '1024']."""
+    return (isinstance(requirements, list) and
+            len(requirements) == 3 and
+            isinstance(requirements[0], six.string_types) and
+            isinstance(requirements[1], six.string_types) and
+            isinstance(requirements[2], six.string_types) and
+            requirements[0] in ['==', '=', '!=', '>=', '<=', '>', '<'] and
+            len(requirements[1]) > 1 and requirements[1][0] == '$' and
+            len(requirements[2]) > 0)
+
+
+#ComputeHost
 def _host_get(session, host_id):
     query = model_query(models.ComputeHost, session)
     return query.filter_by(id=host_id).first()

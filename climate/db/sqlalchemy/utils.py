@@ -57,9 +57,9 @@ def _get_leases_from_host_id(host_id, start_date, end_date):
         yield lease
 
 
-def get_free_periods(resource_id, start_date, end_date, duration):
+def get_free_periods(host_id, start_date, end_date, duration):
     """Returns a list of free periods."""
-    full_periods = get_full_periods(resource_id,
+    full_periods = get_full_periods(host_id,
                                     start_date,
                                     end_date,
                                     duration)
@@ -213,3 +213,11 @@ def shortest_lease(host_id, start_date, end_date):
             min_duration = duration
             longest_lease = lease.id
     return longest_lease
+
+def next_lease(host_id, start_date):
+    session = get_session()
+    return session.query(models.Lease).\
+            join(models.Reservation).\
+            join(models.ComputeHostAllocation, models.ComputeHostAllocation.compute_host_id == host_id).\
+            filter(models.Lease.start_date >= start_date).\
+            order_by(models.Lease.start_date.asc()).first()

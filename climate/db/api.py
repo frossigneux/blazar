@@ -296,6 +296,10 @@ def host_allocation_update(allocation_id, allocation_values):
     IMPL.host_allocation_update(allocation_id, allocation_values)
 
 
+def host_allocation_optimize():
+    """Optimize allocations using Decreasing First Fit algorithm."""
+    IMPL.host_allocation_optimize()
+
 # Compute Hosts
 
 def host_create(values):

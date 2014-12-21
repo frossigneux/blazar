@@ -102,35 +102,39 @@ def to_dict(func):
     return decorator
 
 
-def get_free_periods(resource_id, start_date, end_date, duration):
+def get_free_periods(host_id, start_date, end_date, duration):
     """Returns a list of free periods."""
-    return IMPL.get_free_periods(resource_id, start_date, end_date, duration)
+    return IMPL.get_free_periods(host_id, start_date, end_date, duration)
 
 
-def get_full_periods(resource_id, start_date, end_date, duration):
+def get_full_periods(host_id, start_date, end_date, duration):
     """Returns a list of full periods."""
-    return IMPL.get_full_periods(resource_id, start_date, end_date, duration)
+    return IMPL.get_full_periods(host_id, start_date, end_date, duration)
 
 
-def reservation_ratio(resource_id, start_date, end_date):
-    return IMPL.reservation_ratio(resource_id, start_date, end_date)
+def reservation_ratio(host_id, start_date, end_date):
+    return IMPL.reservation_ratio(host_id, start_date, end_date)
 
 
-def availability_time(resource_id, start_date, end_date):
-    return IMPL.availability_time(resource_id, start_date, end_date)
+def availability_time(host_id, start_date, end_date):
+    return IMPL.availability_time(host_id, start_date, end_date)
 
 
-def reservation_time(resource_id, start_date, end_date):
-    return IMPL.reservation_time(resource_id, start_date, end_date)
+def reservation_time(host_id, start_date, end_date):
+    return IMPL.reservation_time(host_id, start_date, end_date)
 
 
-def number_of_reservations(resource_id, start_date, end_date):
-    return IMPL.number_of_reservations(resource_id, start_date, end_date)
+def number_of_reservations(host_id, start_date, end_date):
+    return IMPL.number_of_reservations(host_id, start_date, end_date)
 
 
-def longest_lease(resource_id, start_date, end_date):
-    return IMPL.longest_lease(resource_id, start_date, end_date)
+def longest_lease(host_id, start_date, end_date):
+    return IMPL.longest_lease(host_id, start_date, end_date)
 
 
-def shortest_lease(resource_id, start_date, end_date):
-    return IMPL.shortest_lease(resource_id, start_date, end_date)
+def shortest_lease(host_id, start_date, end_date):
+    return IMPL.shortest_lease(host_id, start_date, end_date)
+
+
+def next_lease(host_id, start_date):
+    return IMPL.next_lease(host_id, start_date)

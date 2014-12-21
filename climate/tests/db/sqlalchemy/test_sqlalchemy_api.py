@@ -689,6 +689,10 @@ class SQLAlchemyDBApiTestCase(tests.DBTestCase):
         self.assertEqual(1, len(db_api.host_allocation_get_all_by_values(
             reservation_id='1234')))
 
+    def test_host_allocation_optimize(self):
+        # TODO
+        pass
+
     # Event
 
     def test_event_create(self):
