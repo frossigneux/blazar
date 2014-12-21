@@ -111,7 +111,7 @@ class Reservation(mb.ClimateBase):
             if res['count_range']:
                 try:
                     minMax = res['count_range'].split('-', 1)
-                    (d['min'], d['max']) = map(int, minMax)
+                    (d['min'], d['max']) = map(str, minMax)
                 except ValueError:
                     # FIXME: https://bugs.launchpad.net/climate/+bug/1300132
                     # LOG.error(
